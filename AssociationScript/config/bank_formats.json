@@ -1,0 +1,50 @@
+{
+  "banks": {
+    "hdfc_india": {
+      "name": "HDFC Bank India",
+      "currency": "INR",
+      "currency_symbol": "₹",
+      "date_format": "DD/MM/YY",
+      "date_patterns": ["\\d{2}/\\d{2}/\\d{2}"],
+      "amount_patterns": [
+        "\\d{1,3}(?:,\\d{3})*\\.\\d{2}",
+        "\\d+\\.\\d{2}"
+      ],
+      "transaction_structure": {
+        "format": "Date Description Reference ValueDate Amount Balance",
+        "date_position": 0,
+        "transaction_amount_position": -2,
+        "balance_position": -1
+      },
+      "debit_keywords": [
+        "UPI-", "IMPS-", "ATM", "PURCHASE", "WITHDRAWAL", 
+        "FEE", "CHARGE", "TPT-", "DEBIT"
+      ],
+      "credit_keywords": [
+        "NEFTCR", "RTGSCR", "DEPOSIT", "SALARY", 
+        "INTEREST", "CREDIT", "CR-"
+      ],
+      "special_patterns": {
+        "upi_pattern": "UPI-[A-Z0-9]+",
+        "imps_pattern": "IMPS-\\d+",
+        "neft_credit_pattern": "NEFTCR-"
+      }
+    },
+    "generic": {
+      "name": "Generic Bank Format",
+      "currency": "USD",
+      "currency_symbol": "$",
+      "date_patterns": [
+        "\\d{2}/\\d{2}/\\d{4}",
+        "\\d{4}-\\d{2}-\\d{2}",
+        "\\d{2}-\\d{2}-\\d{4}"
+      ],
+      "amount_patterns": [
+        "\\d{1,3}(?:,\\d{3})*\\.\\d{2}",
+        "\\d+\\.\\d{2}"
+      ],
+      "debit_keywords": ["ATM", "WITHDRAWAL", "PURCHASE", "FEE", "CHARGE", "DEBIT"],
+      "credit_keywords": ["DEPOSIT", "CREDIT", "SALARY", "TRANSFER IN", "INTEREST"]
+    }
+  }
+}

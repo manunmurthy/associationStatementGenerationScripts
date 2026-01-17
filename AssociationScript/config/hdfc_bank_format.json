@@ -1,0 +1,38 @@
+{
+  "banks": {
+    "hdfc": {
+      "name": "HDFC Bank",
+      "currency": "INR",
+      "date_format": "DD/MM/YY",
+      "transaction_patterns": {
+        "date_pattern": "^\\d{2}/\\d{2}/\\d{2}",
+        "amount_pattern": "[\\d,]+\\.\\d{2}",
+        "line_structure": "Date Description Reference ValueDate Amount Balance"
+      },
+      "transaction_types": {
+        "debit_indicators": [
+          "UPI-",
+          "IMPS-",
+          "ATM",
+          "PURCHASE",
+          "WITHDRAWAL",
+          "FEE",
+          "CHARGE"
+        ],
+        "credit_indicators": [
+          "NEFTCR",
+          "DEPOSIT",
+          "SALARY",
+          "INTEREST",
+          "CREDIT",
+          "RTGSCR"
+        ]
+      },
+      "amount_extraction": {
+        "transaction_amount_position": -2,
+        "balance_position": -1,
+        "note": "Last amount is balance, second-last is transaction amount"
+      }
+    }
+  }
+}
