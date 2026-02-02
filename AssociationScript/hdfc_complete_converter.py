@@ -1097,6 +1097,7 @@ def save_sheets_as_pdfs(excel_path):
                     formatted_rows.append(new_row)
 
                 # Compute column widths proportionally, boost narration
+                # Measure max characters per column
                 col_max_chars = [0] * num_cols
                 for r in rows:
                     for i, cell in enumerate(r):
@@ -1106,15 +1107,59 @@ def save_sheets_as_pdfs(excel_path):
                             text = ''
                         if len(text) > col_max_chars[i]:
                             col_max_chars[i] = len(text)
+
+                # Build weights: give narration extra room
                 weights = []
                 for i, chars in enumerate(col_max_chars):
-                    weight = chars * (2 if i == narration_col_idx else 1)
+                    base = max(chars, 1)
+                    if narration_col_idx is not None and i == narration_col_idx:
+                        weight = base * 4.0
+                    elif amount_col_idx is not None and i == amount_col_idx:
+                        weight = base * 0.9
+                    elif date_col_idx is not None and i == date_col_idx:
+                        weight = base * 0.9
+                    else:
+                        weight = base * 1.0
                     weights.append(weight)
+
                 total_w = sum(weights) if sum(weights) > 0 else 1
                 usable_width = page_size[0] - left_margin - right_margin
-                col_widths = [max(20 * mm, usable_width * (w / total_w)) for w in weights]
 
-                # Build table and apply zebra styling
+                # Compute proportional widths then apply min/max caps and normalize to usable_width
+                provisional = [usable_width * (w / total_w) for w in weights]
+                col_widths = []
+                for i, p in enumerate(provisional):
+                    # sensible minimums: narration larger
+                    if narration_col_idx is not None and i == narration_col_idx:
+                        min_w = 45 * mm
+                        max_w = usable_width * 0.8
+                    elif amount_col_idx is not None and i == amount_col_idx:
+                        min_w = 20 * mm
+                        max_w = usable_width * 0.3
+                    elif date_col_idx is not None and i == date_col_idx:
+                        min_w = 22 * mm
+                        max_w = usable_width * 0.25
+                    else:
+                        min_w = 25 * mm
+                        max_w = usable_width * 0.5
+
+                    w = max(min_w, min(p, max_w))
+                    col_widths.append(w)
+
+                total_width = sum(col_widths)
+                if total_width == 0:
+                    # fallback to equal columns
+                    col_widths = [usable_width / num_cols] * num_cols
+                elif total_width > usable_width:
+                    # normalize down to usable_width
+                    ratio = usable_width / total_width
+                    col_widths = [w * ratio for w in col_widths]
+                elif total_width < usable_width and narration_col_idx is not None:
+                    # if not full, give remaining space to narration column to improve readability
+                    extra = usable_width - total_width
+                    col_widths[narration_col_idx] += extra
+
+                 # Build table and apply zebra styling
                 table = Table(formatted_rows, colWidths=col_widths, repeatRows=1)
                 tbl_style = TableStyle([
                     ('GRID', (0,0), (-1,-1), 0.3, colors.HexColor('#BBBBBB')),
@@ -1124,9 +1169,9 @@ def save_sheets_as_pdfs(excel_path):
                 ])
 
                 # Add zebra stripes
-                for i in range(1, len(formatted_rows)):
-                    bg = colors.whitesmoke if i % 2 == 0 else colors.white
-                    tbl_style.add('BACKGROUND', (0, i), (-1, i), bg)
+                for zi in range(1, len(formatted_rows)):
+                    bg = colors.whitesmoke if zi % 2 == 0 else colors.white
+                    tbl_style.add('BACKGROUND', (0, zi), (-1, zi), bg)
 
                 # Right align amount and center date
                 if amount_col_idx is not None:
@@ -1166,14 +1211,17 @@ def save_sheets_as_pdfs(excel_path):
         # Fallback: create colorized HTML representation
         try:
             css = '''
-                body { font-family: Arial, Helvetica, sans-serif; font-size:12px; }
+                @page { size: A4 landscape; margin: 10mm; }
+                body { font-family: Arial, Helvetica, sans-serif; font-size:12px; margin:0; padding:0; }
                 .header { background:#FFD966; padding:8px; text-align:center; font-weight:bold; }
-                table { border-collapse: collapse; width:100%; }
-                th, td { border: 1px solid #ccc; padding:6px; vertical-align:top; }
+                table { border-collapse: collapse; width:100%; table-layout: fixed; }
+                th, td { border: 1px solid #ccc; padding:6px; vertical-align:top; word-wrap: break-word; }
                 th { background: #FFD966; text-align:center; }
                 tr:nth-child(even) td { background: #f9f9f9; }
                 .amt { text-align:right; font-variant-numeric: tabular-nums; }
                 .center { text-align:center; }
+                /* make narration column wider for readability */
+                .narr { width: 45%; }
             '''
             html_parts = []
             html_parts.append(f"<html><head><meta charset='utf-8'><title>{base_name} - {sheet_name}</title><style>{css}</style></head><body>")
