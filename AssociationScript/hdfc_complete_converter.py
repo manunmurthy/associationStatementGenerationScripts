@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import pandas as pd
 from datetime import datetime
+import json
 
 def select_input_source():
     """Let user choose between PDF or Excel input"""
@@ -1268,6 +1269,136 @@ def save_sheets_as_pdfs(excel_path):
         except Exception as e:
             print(f"❌ Failed to create HTML fallback for sheet '{sheet_name}': {e}")
 
+def generate_flat_config(transactions, out_path=None):
+    """Generate flat configuration JSON from transaction data.
+    Heuristic: if narration contains a flat number (detected earlier), use that; else use common name tokens.
+    
+    Args:
+      transactions: list of transaction dicts (from parse_transactions)
+      out_path: optional output path for flatConfig.json
+    
+    Returns:
+      Path to written JSON file, or None if failed.
+    """
+    from collections import defaultdict
+    
+    # Heuristic: build mapping from flat number <-> common name tokens
+    mapping = []
+    used_flats = set()  # track used flat numbers to avoid duplicates
+    for t in transactions:
+        flat = t.get('Flat_Number')
+        if not flat or flat in ['Unknown', 'TOTAL CREDITS', 'TOTAL DEBITS']:
+            continue
+        if flat in used_flats:
+            continue
+        used_flats.add(flat)
+        
+        # Extract common name tokens from narration
+        narr = (t.get('Narration') or '').upper()
+        narr_tokens = re.findall(r'\b[A-Z]{1,3}\d{1,3}\b', narr)
+        narr_tokens = list(sorted(set(narr_tokens)))  # unique, sorted
+        if narr_tokens:
+            primary_name = narr_tokens[0]  # use first token as primary
+        else:
+            primary_name = narr  # fallback to full narration
+        
+        mapping.append({
+            'Flat_Number': flat,
+            'Name': primary_name,
+            'Other_Names': [n for n in narr_tokens[1:]],  # rest as other possible names
+        })
+    
+    # Write to JSON file
+    if out_path is None:
+        out_path = Path('config') / 'flat_config.json'
+    try:
+        with open(out_path, 'w', encoding='utf-8') as fh:
+            json.dump(mapping, fh, indent=2, ensure_ascii=False)
+        print(f"✅ flatConfig.json written: {out_path} ({len(mapping)} entries)")
+        return out_path
+    except Exception as e:
+        print(f"❌ Failed to write flatConfig.json: {e}")
+        return None
+
+def load_flat_details_config(path=None):
+    """Load config/flat_details.json and return list of entries.
+
+    Returns list of dicts with keys 'Flat_Number' and 'Name'.
+    """
+    if path is None:
+        path = Path('config') / 'flat_details.json'
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            data = json.load(fh)
+            if isinstance(data, list):
+                return data
+    except FileNotFoundError:
+        print(f"ℹ️ flat details config not found at {path}")
+    except Exception as e:
+        print(f"❌ Failed reading flat details config: {e}")
+    return []
+
+def assign_flats_from_flat_details(transactions, config_path=None):
+    """For transactions missing Flat_Number, try to assign from flat_details.json using name matching.
+
+    Heuristic: if the configured Name (full or tokens) appears in the narration, assign that Flat_Number.
+    Returns number of assignments made.
+    """
+    config = load_flat_details_config(config_path)
+    if not config:
+        return 0
+
+    # Build normalized name -> flat mapping (allow multiple names mapping to same flat)
+    candidates = []
+    for entry in config:
+        name = (entry.get('Name') or '').strip()
+        flat = entry.get('Flat_Number')
+        if name and flat:
+            # normalize name: uppercase, remove punctuation, collapse spaces
+            nm = re.sub(r'[^A-Z0-9\s]', ' ', name.upper())
+            nm = re.sub(r'\s+', ' ', nm).strip()
+            tokens = [t for t in nm.split() if len(t) >= 2]
+            if tokens:
+                candidates.append((flat, nm, tokens))
+
+    if not candidates:
+        return 0
+
+    assigned = 0
+    for t in transactions:
+        flat_raw = t.get('Flat_Number')
+        if flat_raw and str(flat_raw).strip():
+            continue
+        narr = (t.get('Narration') or '').upper()
+        if not narr:
+            continue
+        narr_norm = re.sub(r'[^A-Z0-9\s]', ' ', narr)
+        narr_norm = re.sub(r'\s+', ' ', narr_norm).strip()
+
+        matched = False
+        # Prefer longer/full-name matches first
+        candidates_sorted = sorted(candidates, key=lambda x: -len(x[1]))
+        for flat, nm, tokens in candidates_sorted:
+            # direct substring match
+            if nm and nm in narr_norm:
+                t['Flat_Number'] = flat
+                assigned += 1
+                matched = True
+                break
+            # token subset match
+            if tokens and all(tok in narr_norm for tok in tokens):
+                t['Flat_Number'] = flat
+                assigned += 1
+                matched = True
+                break
+        # no match: continue
+
+    if assigned:
+        print(f"✅ Assigned {assigned} missing flat numbers using config/flat_details.json")
+    else:
+        print("ℹ️ No flat numbers assigned from config")
+    return assigned
+
 def main():
     """Main function to process HDFC bank statement"""
     print("🏦 HDFC BANK STATEMENT COMPLETE PROCESSOR")
@@ -1309,6 +1440,9 @@ def main():
     if not all_transactions:
         print("❌ No transactions found")
         return
+    
+    # Assign flat numbers from config before creating outputs
+    assign_flats_from_flat_details(all_transactions)
     
     # Step 3: Create comprehensive Excel
     output_file = create_comprehensive_excel(all_transactions, credits, debits)
