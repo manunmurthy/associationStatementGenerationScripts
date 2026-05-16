@@ -1324,6 +1324,8 @@ def load_flat_details_config(path=None):
     """Load config/flat_details.json and return list of entries.
 
     Returns list of dicts with keys 'Flat_Number' and 'Name'.
+    The same Flat_Number may appear on multiple lines when several payer
+    names are known for that flat (e.g. UPI sender vs account holder).
     """
     if path is None:
         path = Path('config') / 'flat_details.json'
